@@ -73,6 +73,37 @@ class BinaryReader:
 
         return bytes.decode(encoding)
 
+    def readVector3(self):
+        x, y, z = struct.unpack(self.endian + "fff", self.read(12))[0]
+        return x, y, z
+    
+    def readVector4(self):
+        x, y, z, w = struct.unpack(self.endian + "ffff", self.read(16))[0]
+        return x, y, z, w
+
+    def readMatrix4x4(self):
+        matrix = []
+        matrix.append(struct.unpack(self.endian + "ffff", self.read(16))[0])
+        matrix.append(struct.unpack(self.endian + "ffff", self.read(16))[0])
+        matrix.append(struct.unpack(self.endian + "ffff", self.read(16))[0])
+        matrix.append(struct.unpack(self.endian + "ffff", self.read(16))[0])
+        return matrix
+    
+    def readMatrix4x3(self):
+        matrix = []
+        matrix.append(struct.unpack(self.endian + "ffff", self.read(16))[0])
+        matrix.append(struct.unpack(self.endian + "ffff", self.read(16))[0])
+        matrix.append(struct.unpack(self.endian + "ffff", self.read(16))[0])
+        matrix.append(struct.unpack(self.endian + "ffff", self.read(16))[0])
+        return matrix
+
+    def readMatrix3x3(self):
+        matrix = []
+        matrix.append(struct.unpack(self.endian + "fff", self.read(12))[0])
+        matrix.append(struct.unpack(self.endian + "fff", self.read(12))[0])
+        matrix.append(struct.unpack(self.endian + "fff", self.read(12))[0])
+        return matrix
+
     def bytesToString(self, byteArray, encoding="utf-8"):
         try:
             return byteArray.decode(encoding)
