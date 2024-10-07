@@ -1,10 +1,21 @@
+import mathutils
+
 from ..utilities import *
+
+from enum import Enum
+
+class NodeType:
+    Mesh0x3 = 0x3
+    Mesh0x7 = 0x7
+    Mesh0xB = 0xB
 
 class Header:
 
     def __init__(self) -> None:
+        self.pointerCount = 0
         self.offsets = []
         self.sizes = []
+        self.nodeTypes = []
 
     def read(self, br):
         self.fileSize = br.readUInt()
@@ -17,13 +28,16 @@ class Header:
         unkSize0x80 = br.readUInt()
         unk0x84 = br.readUByte()
         unk0x85 = br.readUByte()
-        pointerCount = br.readUShort()
-        skipZeros = 96 - pointerCount * 4
-        for pointer in range(pointerCount):
+        self.pointerCount = br.readUShort()
+        skipZeros = 96 - self.pointerCount * 4
+        for pointer in range(self.pointerCount):
             self.offsets.append(self.pointersOffset + br.readUInt())
         br.seek(skipZeros, 1)
-        for size in range(pointerCount):
+        for size in range(self.pointerCount):
             self.sizes.append(br.readUInt())
+        br.seek(skipZeros, 1)
+        for nodeType in range(self.pointerCount):
+            self.nodeTypes.append(br.readUByte())
 
 class Material:
 
@@ -38,14 +52,23 @@ class SubMeshHeader:
 
     def __init__(self, startPos) -> None:
         self.startPos = startPos
+        self.parentIndex = -1
+        self.childIndex = -1
+        self.siblingIndex = -1
         
     def read(self, br, subMeshes):
-        br.seek(48, 1)
+        self.translation = mathutils.Vector(br.readVector3f())
+        br.readFloat()
+        self.rotation = mathutils.Euler(br.readVector3f(), "XYZ")
+        br.readFloat()
+        self.scale = mathutils.Euler(br.readVector3f())
+        br.readFloat()
+        self.transformation = mathutils.Matrix.Translation(self.translation) @ self.rotation.to_matrix().to_4x4() @ mathutils.Matrix.Scale(1, 4, self.scale)
         unk0x30 = br.readShort()
         unk0x32 = br.readShort()
-        unk0x34 = br.readShort()
-        unk0x36 = br.readShort()
-        unk0x38 = br.readShort()
+        self.parentIndex = br.readShort()
+        self.childIndex = br.readShort()
+        self.siblingIndex = br.readShort()
         unkCount0x3A = br.readUShort()
         unkOffset0x3C = self.startPos + br.readUInt()
         vertexBufferCount = br.readUInt() # Vertex buffer count
@@ -61,15 +84,16 @@ class SubMeshHeader:
         savePos = br.tell()
 
         br.seek(unkOffset0x44)
-        subMesh = SubMesh(self.startPos)
+        subMesh = SubMesh(self.startPos, self)
         subMesh.read(br, vertexBufferCount)
         subMeshes.append(subMesh)
 
         br.seek(savePos)
 
 class SubMesh:
-    def __init__(self, startPos) -> None:
+    def __init__(self, startPos, header) -> None:
         self.startPos = startPos
+        self.header = header
         self.vertexBuffers = []
         
     def read(self, br, vertexBufferCount):
@@ -94,7 +118,7 @@ class VertexBuffer:
 
     def __init__(self, startPos) -> None:
         self.startPos = startPos
-        self.buffer = {"positions": [], "flags":[], "colors": []}
+        self.buffer = {"positions": [], "flags":[], "normals":[], "uvs":[], "colors": []}
 
     def read(self, br):
         unk0x0 = br.readUShort()
@@ -109,12 +133,14 @@ class VertexBuffer:
 
         for i in range(vertexCount):
             br.seek(positionBufferOffset + i * 8)
-            self.buffer["positions"].append([br.readShort() / 32767, br.readShort() / 32767, br.readShort() / 32767])
+            self.buffer["positions"].append(mathutils.Vector((br.readShort() / 32767, br.readShort() / 32767, br.readShort() / 32767)))
             self.buffer["flags"].append(br.readUShort())
             br.seek(unkBufferOffset0x10  + i * 3)
-            br.seek(unkBufferOffset0x14)
+            self.buffer["normals"].append([br.readByte() / 127, br.readByte() / 127, br.readByte() / 127])
+            br.seek(unkBufferOffset0x14 + i * 4)
+            self.buffer["uvs"].append([br.readShort() / 32767, br.readShort() / 32767])
             br.seek(colorBufferOffset  + i * 4)
-            self.buffer["colors"].append([br.readUByte(), br.readUByte(), br.readUByte(), br.readUByte()])
+            self.buffer["colors"].append([br.readUByte() / 255, br.readUByte() / 255, br.readUByte() / 255, br.readUByte() / 255])
 
 
         br.seek(vertexBufferEnd)
@@ -155,7 +181,7 @@ class ACLR:
 
     def __init__(self) -> None:
         self.header = None
-        self.mesh = None
+        self.meshes = []
 
     def read(self, filepath):
         file = open(filepath, "rb")
@@ -164,10 +190,13 @@ class ACLR:
         self.header = Header()
         self.header.read(br)
 
-        # Mesh data
-        br.seek(self.header.offsets[4])
-        self.mesh = Mesh(br)
-        self.mesh.read(br)
+        for i in range(self.header.pointerCount):
+            nodeType = self.header.nodeTypes[i]
+            if nodeType == NodeType.Mesh0x3 or nodeType == NodeType.Mesh0x7 or nodeType == NodeType.Mesh0xB:
+                br.seek(self.header.offsets[i])
+                mesh = Mesh(br)
+                mesh.read(br)
+                self.meshes.append(mesh)
 
         print("Finished")
 

@@ -1,5 +1,7 @@
 import struct
 
+import mathutils
+
 class BinaryReader:
 
     def __init__(self, data, endian="<"):
@@ -73,12 +75,12 @@ class BinaryReader:
 
         return bytes.decode(encoding)
 
-    def readVector3(self):
-        x, y, z = struct.unpack(self.endian + "fff", self.read(12))[0]
+    def readVector3f(self):
+        x, y, z = struct.unpack(self.endian + "fff", self.read(12))
         return x, y, z
     
-    def readVector4(self):
-        x, y, z, w = struct.unpack(self.endian + "ffff", self.read(16))[0]
+    def readVector4f(self):
+        x, y, z, w = struct.unpack(self.endian + "ffff", self.read(16))
         return x, y, z, w
 
     def readMatrix4x4(self):

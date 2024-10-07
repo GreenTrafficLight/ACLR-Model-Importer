@@ -2,6 +2,8 @@ import bpy
 import bmesh
 import os
 
+import mathutils
+
 from ...formats.aclr import *
 from ...utilities import *
 
@@ -12,43 +14,35 @@ def buildFaceList(subMesh):
 
     for vertexBuffer in subMesh.vertexBuffers:
         
-        skip_ff_for_next_special = False
+        skipFF = False
 
         for idx, value in enumerate(vertexBuffer.buffer["flags"]):
-            if idx < 2:
-                # First two items just get their indices
-                faces.append(faceIndex)
-                faceIndex += 1
-            else:
+            if idx > 2:
                 if value == 0x8000 or value == 0xA000:
-                    if skip_ff_for_next_special:
+                    if skipFF:
                         # If we need to skip the 0xFF because the previous was 0xA0 or 0x80
-                        skip_ff_for_next_special = False
-                        faces.append(faceIndex)  # Add a number instead of 0xFF
-                        faceIndex += 1
+                        skipFF = False
                     else:
                         faces.append(0xFFFF)  # Add 0xFF for 0x80 or 0xA0
-                        faces.append(faceIndex)  # Add a number instead of 0xFF
-                        faceIndex += 1
                         # Set the flag to skip the next special case if the next value is the counterpart
-                        skip_ff_for_next_special = True
-                else:
-                    faces.append(faceIndex)  # Append current index
-                    faceIndex += 1  # Increment index only when appending a number
+                        skipFF = True
+
+            faces.append(faceIndex)  # Append current index
+            faceIndex += 1  # Increment index only when appending a number
 
         faces.append(0xFFFF)
 
     return StripToTriangle(faces)
             
 
-def buildMesh(model):
+def buildMesh(mesh, meshIndex):
 
     subMeshIndex = 0
 
-    for subMesh in model.mesh.subMeshes:
+    for subMesh in mesh.subMeshes:
 
-        mesh = bpy.data.meshes.new("test" + str(subMeshIndex))
-        obj = bpy.data.objects.new("test" + str(subMeshIndex), mesh)
+        mesh = bpy.data.meshes.new(str(meshIndex) + str(subMeshIndex))
+        obj = bpy.data.objects.new(str(meshIndex) + str(subMeshIndex), mesh)
 
         sceneCollection = bpy.context.scene.collection  # Get the default collection
         sceneCollection.objects.link(obj)
@@ -58,16 +52,23 @@ def buildMesh(model):
 
         vertexList = {}
         facesList = []
+        normals = []
 
         faces = buildFaceList(subMesh)
+
+        uv_layer = bm.loops.layers.uv.new()
 
         vertexIndex = 0
 
         for vertexBuffer in subMesh.vertexBuffers:
 
             # # Set vertices
-            for j in range(len(vertexBuffer.buffer["positions"])):
+            for j in range(len(vertexBuffer.buffer["positions"])): 
+                #test = subMesh.header.transformation @ mathutils.Matrix.Translation(vertexBuffer.buffer["positions"][j])
                 vertex = bm.verts.new(vertexBuffer.buffer["positions"][j])
+
+                vertex.normal = vertexBuffer.buffer["normals"][j]
+                normals.append(vertexBuffer.buffer["normals"][j])
                 
                 vertex.index = vertexIndex
                 
@@ -93,6 +94,9 @@ def buildMesh(model):
         bm.to_mesh(mesh)
         bm.free()
 
+        if normals != []:
+            mesh.normals_split_custom_set_from_vertices(normals)
+
         subMeshIndex += 1
 
 def importModel(filepath, files, clearScene):
@@ -109,7 +113,10 @@ def importModel(filepath, files, clearScene):
         model = ACLR()
         model.read(path_to_file)
 
-        buildMesh(model)
+        meshIndex = 0
+        for mesh in model.meshes:
+            buildMesh(mesh, meshIndex)
+            meshIndex += 1
 
         head = os.path.split(path_to_file)[0]
 
