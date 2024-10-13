@@ -5,9 +5,12 @@ from ..utilities import *
 from enum import Enum
 
 class NodeType:
-    Mesh0x3 = 0x3
+    LOD0 = 0x3
+    LOD1 = 0x4
+    LOD2 = 0x5
     Mesh0x7 = 0x7
     Mesh0xB = 0xB
+    Mesh0xC = 0xC
 
 class Header:
 
@@ -48,15 +51,16 @@ class Material:
     def read(self, br, materialInformation):
         pass
 
-class SubMeshHeader:
+class SubMesh:
 
     def __init__(self, startPos) -> None:
         self.startPos = startPos
         self.parentIndex = -1
         self.childIndex = -1
         self.siblingIndex = -1
+        self.vertexBuffers = []
         
-    def read(self, br, subMeshes):
+    def read(self, br):
         self.translation = mathutils.Vector(br.readVector3f())
         br.readFloat()
         self.rotation = mathutils.Euler(br.readVector3f(), "XYZ")
@@ -70,12 +74,12 @@ class SubMeshHeader:
         self.childIndex = br.readShort()
         self.siblingIndex = br.readShort()
         unkCount0x3A = br.readUShort()
-        unkOffset0x3C = self.startPos + br.readUInt()
+        unkOffset0x3C = self.startPos + br.readUInt() # Used for transformation
         vertexBufferCount = br.readUInt() # Vertex buffer count
-        unkOffset0x44 = self.startPos + br.readUInt()
+        subMeshOffset = self.startPos + br.readUInt()
         unk0x48 = br.readUShort()
         unk0x4A = br.readUShort()
-        unkOffset0x4C = self.startPos + br.readUInt()
+        unkOffset0x4C = self.startPos + br.readUInt() # Used for transformation
         unkOffset0x50 = self.startPos + br.readUInt()
         unk0x54 = br.readUInt()
         unkSize0x58 = br.readUInt()
@@ -83,36 +87,13 @@ class SubMeshHeader:
 
         savePos = br.tell()
 
-        br.seek(unkOffset0x44)
-        subMesh = SubMesh(self.startPos, self)
-        subMesh.read(br, vertexBufferCount)
-        subMeshes.append(subMesh)
-
-        br.seek(savePos)
-
-class SubMesh:
-    def __init__(self, startPos, header) -> None:
-        self.startPos = startPos
-        self.header = header
-        self.vertexBuffers = []
-        
-    def read(self, br, vertexBufferCount):
-        br.readUShort()
-        br.readUByte()
-        br.readUByte()
-        unkOffset0x4 = self.startPos + br.readUInt()
-        unkOffset0x8 = self.startPos + br.readUInt() # Vertex Buffer Offset ?
-        unkOffset0xC = self.startPos + br.readUInt()
-        unkOffset0x10 = self.startPos + br.readUInt()
-        unkOffset0x14 = self.startPos + br.readUInt()
-        unkOffset0x18 = self.startPos + br.readUInt()
-
-        br.seek(unkOffset0x8)
-        for i in range(vertexBufferCount - 1):
-            print(br.tell())
+        br.seek(subMeshOffset)
+        for i in range(vertexBufferCount):
             vertexBuffer = VertexBuffer(self.startPos)
             vertexBuffer.read(br)
             self.vertexBuffers.append(vertexBuffer)
+
+        br.seek(savePos)
 
 class VertexBuffer:
 
@@ -142,7 +123,6 @@ class VertexBuffer:
             br.seek(colorBufferOffset  + i * 4)
             self.buffer["colors"].append([br.readUByte() / 255, br.readUByte() / 255, br.readUByte() / 255, br.readUByte() / 255])
 
-
         br.seek(vertexBufferEnd)
 
 class Mesh:
@@ -160,8 +140,8 @@ class Mesh:
         unkCount0xE = br.readUShort()
         unkCount0x10 = br.readUShort()
         unkCount0x12 = br.readUShort()
-        unkOffset0x14 = self.startPos + br.readUInt()
-        unkOffset0x18 = self.startPos + br.readUInt()
+        unkOffset0x14 = self.startPos + br.readUInt() # used for materials
+        unkOffset0x18 = self.startPos + br.readUInt() # used for transformation
         unkOffset0x1C = self.startPos + br.readUInt()
        
         # br.seek(self.startPos + meshHeaderSize + 0x30)
@@ -173,8 +153,9 @@ class Mesh:
 
         br.seek(unkOffset0x1C)
         for i in range(unkCount0x12):
-            subMeshHeader = SubMeshHeader(self.startPos)
-            subMeshHeader.read(br, self.subMeshes)
+            subMesh = SubMesh(self.startPos)
+            subMesh.read(br)
+            self.subMeshes.append(subMesh)
 
 
 class ACLR:
@@ -192,7 +173,7 @@ class ACLR:
 
         for i in range(self.header.pointerCount):
             nodeType = self.header.nodeTypes[i]
-            if nodeType == NodeType.Mesh0x3 or nodeType == NodeType.Mesh0x7 or nodeType == NodeType.Mesh0xB:
+            if nodeType == NodeType.LOD0 or nodeType == NodeType.LOD1 or nodeType == NodeType.LOD2 or nodeType == NodeType.Mesh0x7 or nodeType == NodeType.Mesh0xB or nodeType == NodeType.Mesh0xC:
                 br.seek(self.header.offsets[i])
                 mesh = Mesh(br)
                 mesh.read(br)
